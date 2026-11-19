@@ -19,7 +19,10 @@ unchanged (638 players tracked) from 23:48Z to 04:00Z, then refreshed to
    with weight n / (n + 6), so a trophy with a flat or noisy history
    follows the global curve, and extrapolation is damped by
    1 / (1 + dx / 3) and capped, so a short hot streak cannot launch a
-   rare trophy to 90% in a week.
+   rare trophy to 90% in a week.  The extrapolated median is also
+   winsorized to the trophy's own observed logit range, plus or minus
+   2 logits: no forecast leaves the range the trophy has ever shown
+   by more than that, however steep its fitted slope.
 
 2. Refresh dilution.  Exophase does not refresh continuously: the page
    freezes, then jumps.  At a refresh the tracked-player count jumps and
@@ -83,6 +86,9 @@ REFRESH_INTERVAL_PRIOR_H = 3.0
 # How much of the dilution step still applies once the history already
 # contains refreshes (the trend has then priced dilution in).
 DILUTION_SCALE_AFTER_REFRESH = 0.25
+# Winsorize for the extrapolated trend median: how far, in logits, the
+# forecast median may sit outside the trophy's own observed logit range.
+WINSORIZE_LOGIT = 2.0
 # Spread: floor in logit units, extra dilution uncertainty, horizon term.
 SIGMA_FLOOR = 0.55
 SIGMA_DILUTION = 0.35
@@ -282,7 +288,7 @@ def forecast_case(case, name):
     dilution_scale = 1.0 if n_refresh == 0 else DILUTION_SCALE_AFTER_REFRESH
 
     # ---- per-trophy trend fits in logit space ----
-    series = []  # (xs, ys, last_rate, last_logit) per trophy
+    series = []  # (xs, ys, last_rate, last_logit, lo_logit, hi_logit) per trophy
     last_rates = []
     for i in range(len(trophies)):
         xs, ys = [], []
@@ -297,11 +303,13 @@ def forecast_case(case, name):
         if last_rate is None:
             last_rate = 0.01
         last_rates.append(last_rate)
-        series.append((xs, ys, last_rate, logit(last_rate)))
+        lo_logit = min(ys) if ys else logit(last_rate)
+        hi_logit = max(ys) if ys else logit(last_rate)
+        series.append((xs, ys, last_rate, logit(last_rate), lo_logit, hi_logit))
     fallback_rate = median(last_rates) or 0.5
 
     fits = []
-    for xs, ys, _rate, _lg in series:
+    for xs, ys, _rate, _lg, _lo, _hi in series:
         if len(xs) >= 4:
             fits.append(ols(xs, ys))
         else:
@@ -313,7 +321,7 @@ def forecast_case(case, name):
 
     rows = []
     for idx, trophy in enumerate(trophies):
-        xs, ys, last_rate, last_logit = series[idx]
+        xs, ys, last_rate, last_logit, lo_logit, hi_logit = series[idx]
         if last_rate <= 0.01:
             last_rate = fallback_rate
             last_logit = logit(last_rate)
@@ -339,6 +347,11 @@ def forecast_case(case, name):
         move = min(3.0, max(-2.0, move))
         mu = last_logit + move
         mu = min(logit(99.99), max(logit(0.01), mu))
+        # Winsorize: the extrapolated median may not leave the range this
+        # trophy has actually shown by more than WINSORIZE_LOGIT logits.
+        # A steep fitted slope on a short, noisy history can otherwise
+        # push a rare trophy far past anything ever observed for it.
+        mu = min(hi_logit + WINSORIZE_LOGIT, max(lo_logit - WINSORIZE_LOGIT, mu))
 
         # Spread: residual scatter (with leverage) + horizon term, floored.
         sigma_fit = resid_shrunk * leverage
