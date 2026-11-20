@@ -46,14 +46,16 @@ v2 fixes that and models dilution per trophy instead of uniformly.
    2 logits.
 
 4. Refresh mixture.  The forecast is a two-part mixture: with
-   probability p = 1 - exp(-(horizon + 30 min) / interval) a refresh
-   lands before the target and the median shifts down by the dilution
-   step the mechanism of (2) implies, from the trend rate at the target;
-   otherwise it follows the trend. When the history already contains
-   refreshes, the trend has priced dilution in, so the step is scaled to
-   25% and the mixture mainly adds honest spread. Near-universal
-   trophies are not diluted: the mechanism gives n = 1 at r = 1, matching
-   the documented refresh, where the 100% trophy did not move.
+   probability p from a renewal calculation over the age of the current
+   flat stretch (Normal refresh interval, mean 4.5 h, sd 0.75 h -- a
+   scheduled cadence is fairly regular), a refresh lands before the
+   target and the median shifts down by the dilution step the mechanism
+   of (2) implies, from the trend rate at the target; otherwise it
+   follows the trend. When the history already contains refreshes, the
+   trend has priced dilution in, so the step is scaled to 25% and the
+   mixture mainly adds honest spread. Near-universal trophies are not
+   diluted: the mechanism gives n = 1 at r = 1, matching the documented
+   refresh, where the 100% trophy did not move.
 
 5. Spread from residuals.  The base spread is the trophy's residual
    scatter around its trend line (shrunk toward the global scatter),
